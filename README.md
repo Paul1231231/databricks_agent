@@ -19,7 +19,7 @@ The SQL queries read from:
 ```text
 <catalog>.<schema>.bom_relationships
 Expected columns include parent_item_id, component_item_id, component_description, quantity, unit_of_measure, bom_level, effective_from, and effective_to.
-
+```
 Project structure
 Text
 src/databricks_agent/
