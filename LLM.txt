@@ -1,0 +1,6 @@
+This is a short guide on connecting databricks-hosted llm in terminal without personal access token.
+
+1. databricks auth login --host https://<workspace-url>
+2. databricks auth token --host https://<workspace-url>
+For window users,
+3. $env:DATABRICKS_TOKEN= ""
