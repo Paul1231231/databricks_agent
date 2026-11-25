@@ -84,4 +84,5 @@ Document and validate the BOM table schema and effective-date behavior.
 Add evaluation examples for representative questions and answers.
 Code
 
-One detail to revisit as you implement: `DATABRICKS_LLM_ENDPOINT` is in
+
+One detail to revisit as you implement: `DATABRICKS_LLM_ENDPOINT` is in the settings, but the current `llm.py` uses a hard-coded endpoint/model instead.
