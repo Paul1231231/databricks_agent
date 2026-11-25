@@ -1,7 +1,7 @@
 import json
 
-from agent.graph.state import AgentState
-from integrations.databricks.llm import create_chat_model
+from databricks_agent.agent.graph.state import AgentState
+from databricks_agent.integrations.databricks.llm import create_chat_model
 
 
 ANSWER_PROMPT = """

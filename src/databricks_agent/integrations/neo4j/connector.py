@@ -1,4 +1,4 @@
-from config.settings import get_settings
+from databricks_agent.config.settings import get_settings
 
 
 class Neo4jConnector:

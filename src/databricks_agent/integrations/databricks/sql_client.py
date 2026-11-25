@@ -2,7 +2,7 @@ from typing import Any
 
 from databricks import sql
 
-from config.settings import get_settings
+from databricks_agent.config.settings import get_settings
 
 
 class DatabricksSQLClient:

@@ -1,6 +1,6 @@
-from agent.graph.state import AgentState
-from config.settings import get_settings
-from integrations.databricks.sql_client import DatabricksSQLClient
+from databricks_agent.agent.graph.state import AgentState
+from databricks_agent.config.settings import get_settings
+from databricks_agent.integrations.databricks.sql_client import DatabricksSQLClient
 
 
 def build_table_name() -> str:

@@ -1,4 +1,4 @@
-from agent.graph.workflow import workflow
+from databricks_agent.agent.graph.workflow import workflow
 
 
 def main() -> None:
