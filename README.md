@@ -1,88 +1,94 @@
 # Databricks BOM Agent
 
-A work-in-progress Python agent for answering Bill of Materials (BOM) questions using data stored in Databricks.
+A Python agent that answers a fixed set of Bill of Materials questions from Databricks. The model reads the question. The warehouse decides whether the part number is real, what kind of part it is, and what the rows say.
 
-## Current status
+## Workflow
 
-The project has an initial LangGraph workflow, intent routing, and fixed SQL templates for three BOM query types. The application is still under development and is not yet runnable end to end.
+```mermaid
+flowchart TD
+    startNode[User question] --> identify[identify_part]
+    identify -->|part number found| check[check_part_exists]
+    identify -->|no part number| answer[compose_answer]
+    check -->|exact match| match[match_usecase]
+    check -->|not found| suggest[suggest_part]
+    check -->|lookup error| answer
+    suggest -->|user types a new number| identify
+    suggest -->|gave up| answer
+    match -->|allowed use case| query[run_fixed_query]
+    match -->|no matching use case| answer
+    query --> answer
+    answer --> finishNode[End]
+```
 
-## Supported question types
+1. `identify_part` copies the part number exactly as written and guesses assembly, component (purchased part), or model (product). It does not correct typos. A number the user did not write is rejected.
+2. `check_part_exists` looks up that exact number in the item master. The row sets the part type. A wrong guess does not send a real number down the typo path. Several types for one number stop the run.
+3. When the number is missing, `suggest_part` asks the vector index for the closest part numbers and tells the user to type the number again. That reply goes back to `identify_part`. After three misses the graph stops. The original question is kept, so the use-case match still sees what the user asked.
+4. `match_usecase` picks one pre-written query allowed for the confirmed type.
+5. `run_fixed_query` runs that SELECT with the part number bound as a parameter.
+6. `compose_answer` phrases the rows. Errors and "please retype" messages skip the model.
 
-The router is designed to handle:
+| Confirmed type | Fixed queries |
+| --- | --- |
+| model | BOM explosion, customer impact, model impact |
+| component | component impact, supplier impact |
+| assembly | recognized and looked up; no fixed query yet |
 
-- **BOM components** — What components belong to an assembly?
-- **Where used** — Which assemblies use a component?
-- **Component details** — What descriptive information is available for a component?
+A model question cannot run a component query. The allowed list is in `AgentState` (`USECASES_BY_PART_TYPE`), and `run_fixed_query` checks it again before executing.
 
-The SQL queries read from:
+The earlier nodes (`intent_router`, `databricks_query`, `response_generation`) are still in the tree. The compiled graph no longer calls them.
 
-```text
-<catalog>.<schema>.bom_relationships
-Expected columns include parent_item_id, component_item_id, component_description, quantity, unit_of_measure, bom_level, effective_from, and effective_to.
+## What you still wire in
 
-Project structure
-Text
-src/databricks_agent/
-├── agent/
-│   ├── graph/          # LangGraph state and workflow
-│   ├── nodes/          # Intent routing, Databricks query, response generation
-│   └── prompts/        # Prompt files
-├── config/             # Application settings and logging
-├── integrations/
-│   ├── databricks/     # Databricks LLM and SQL integrations
-│   └── neo4j/          # Reserved for a future integration
-└── tests/              # Test package
-Requirements
-Python 3.14 or newer
-uv
-A Databricks workspace and SQL warehouse
-Databricks credentials with read access to the configured catalog and schema
-Setup
-Install the project dependencies:
+The graph shape is in place. These three slots are empty on purpose:
 
-bash
+| Slot | File | What to set |
+| --- | --- | --- |
+| Item master | `src/databricks_agent/agent/nodes/check_part_exists.py` | `ITEM_TABLE`, `ITEM_ID_COLUMN`, `ITEM_TYPE_COLUMN`. Type values must be assembly, component, or model. |
+| Vector index | `src/databricks_agent/agent/nodes/suggest_part.py` | `VECTOR_INDEX`, and the body of `search_similar_parts`. Until then the node asks for a retype with no suggestion. |
+| Fixed SQL | `src/databricks_agent/agent/nodes/run_fixed_query.py` | `FIXED_QUERIES`. Each value is a read-only SELECT with one `?` for the part number. |
+
+`identify_part`, `match_usecase`, and `compose_answer` call `create_chat_model()`, which is not implemented yet. `src/databricks_agent/integrations/databricks/llm.py` is still a standalone script.
+
+During one question, `suggest_part` reads the next part number with `input()`. The CLI loop in `main.py` does not need a second invoke for that retry. The `databricks-agent` command still points at the placeholder in `src/databricks_agent/__init__.py`. Run the real loop with:
+
+```bash
+uv run python -m databricks_agent.main
+```
+
+## Setup
+
+Python 3.14 or newer, uv, a Databricks workspace, and a SQL warehouse. The identity needs read access only to the catalog and schema this agent uses.
+
+```bash
 uv sync
-Copy the example environment file and fill in the values for your workspace:
-
-bash
 cp .env.example .env
-The project settings currently define these variables:
+```
 
-Variable	Purpose
-DATABRICKS_HOST	Databricks workspace URL
-DATABRICKS_TOKEN	Databricks access token
-DATABRICKS_HTTP_PATH	SQL warehouse HTTP path
-DATABRICKS_CATALOG	Catalog containing the BOM table
-DATABRICKS_SCHEMA	Schema containing the BOM table
-DATABRICKS_LLM_ENDPOINT	Intended model-serving endpoint setting
-Do not commit .env or put credentials in source code.
+| Variable | Purpose |
+| --- | --- |
+| `DATABRICKS_HOST` | Workspace URL |
+| `DATABRICKS_TOKEN` | Access token |
+| `DATABRICKS_HTTP_PATH` | SQL warehouse HTTP path |
+| `DATABRICKS_CATALOG` | Catalog of the item master and BOM tables |
+| `DATABRICKS_SCHEMA` | Schema of those tables |
+| `DATABRICKS_LLM_ENDPOINT` | Model-serving endpoint |
 
-Running
-The CLI and LLM integration are not wired up yet. The configured databricks-agent command currently points to a placeholder, and the workflow expects a create_chat_model() function that is not yet implemented.
+Do not commit `.env` or put credentials in source code.
 
-SQL behavior
-The query node uses predefined SELECT templates and binds the item identifier as a query parameter. Queries have result limits of 50 or 200 rows, depending on the intent. The SQL client also checks for read-only query prefixes and blocks common write-operation keywords.
+The SQL client rejects anything that is not a single read-style statement. The fixed queries are trusted code that you paste in; the model never writes SQL.
 
-Use a Databricks identity with read-only permissions restricted to the data this agent needs.
-
-Development
-Run the test suite with:
-
-bash
+```bash
 uv run pytest
-Run Ruff checks with:
-
-bash
 uv run ruff check .
-Tests and application wiring are still being built out.
+```
 
-Roadmap
-Implement and configure the Databricks chat model integration.
-Wire the package entry point to the actual CLI.
-Add tests for routing, SQL parameter binding, and query behavior.
-Document and validate the BOM table schema and effective-date behavior.
-Add evaluation examples for representative questions and answers.
-Code
+Tests are not written yet.
 
+## Roadmap
 
-One detail to revisit as you implement: `DATABRICKS_LLM_ENDPOINT` is in the settings, but the current `llm.py` uses a hard-coded endpoint/model instead.
+- Point `create_chat_model()` at the configured serving endpoint.
+- Confirm the item-master names and paste the five SELECT statements.
+- Connect `search_similar_parts` to the vector index.
+- Point the `databricks-agent` script at `databricks_agent.main`.
+- Add tests for routing, the existence lookup, and the use-case allow-list.
+- Decide which fixed queries an assembly should run.
