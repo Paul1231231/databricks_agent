@@ -2,22 +2,77 @@
 
 A Python agent that answers a fixed set of Bill of Materials questions from Databricks. The model reads the question. The warehouse decides whether the part number is real, what kind of part it is, and what the rows say.
 
+## Project structure
+
+```text
+databricks_agent/
+├── pyproject.toml
+├── README.md
+├── .env.example
+├── LLM.txt                         # Databricks CLI auth notes
+├── .github/workflows/pytest.yml    # runs pytest on pull requests and on main
+├── tests/
+│   └── test_workflow.py
+└── src/
+    ├── bootstrap.py                # one-time scaffold, not used at runtime
+    └── databricks_agent/
+        ├── __init__.py             # placeholder script entry
+        ├── main.py                 # question loop
+        ├── agent/
+        │   ├── graph/
+        │   │   ├── state.py        # AgentState and the use-case allow-list
+        │   │   └── workflow.py     # compiled LangGraph
+        │   └── nodes/
+        │       ├── identify_part.py
+        │       ├── check_part_exists.py
+        │       ├── suggest_part.py
+        │       ├── match_usecase.py
+        │       ├── run_fixed_query.py
+        │       ├── compose_answer.py
+        │       ├── intent_router.py       # previous graph, not compiled
+        │       ├── databricks_query.py    # previous graph, not compiled
+        │       └── response_generation.py # previous graph, not compiled
+        ├── config/
+        │   └── settings.py
+        └── integrations/
+            ├── databricks/
+            │   ├── llm.py          # chat model, not wired yet
+            │   └── sql_client.py   # read-only SQL warehouse client
+            └── neo4j/
+                └── connector.py    # reserved
+```
+
+The live graph is the first six nodes. `workflow.py` is the only place that connects them.
+
 ## Workflow
 
 ```mermaid
 flowchart TD
-    startNode[User question] --> identify[identify_part]
-    identify -->|part number found| check[check_part_exists]
-    identify -->|no part number| answer[compose_answer]
-    check -->|exact match| match[match_usecase]
-    check -->|not found| suggest[suggest_part]
-    check -->|lookup error| answer
-    suggest -->|user types a new number| identify
-    suggest -->|gave up| answer
-    match -->|allowed use case| query[run_fixed_query]
-    match -->|no matching use case| answer
+    question([User question]) --> identify
+
+    subgraph confirmPart [1. Confirm the part number]
+        identify[identify_part]
+        check[check_part_exists]
+        suggest[suggest_part]
+    end
+
+    subgraph fixedQuery [2. Run one fixed query]
+        match[match_usecase]
+        query[run_fixed_query]
+    end
+
+    identify -->|number copied from the question| check
+    identify -->|no part number in the question| answer[compose_answer]
+    check -->|exact row, type taken from the table| match
+    check -->|no row| suggest
+    check -->|lookup failed| answer
+    suggest -->|user types the number again| identify
+    suggest -->|three misses, or no number entered| answer
+    match -->|model: BOM explosion, customer impact, model impact| query
+    match -->|component: component impact, supplier impact| query
+    match -->|assembly, or no allowed query| answer
     query --> answer
-    answer --> finishNode[End]
+    answer --> done([Answer])
 ```
 
 1. `identify_part` copies the part number exactly as written and guesses assembly, component (purchased part), or model (product). It does not correct typos. A number the user did not write is rejected.
@@ -82,7 +137,7 @@ uv run pytest
 uv run ruff check .
 ```
 
-Tests are not written yet.
+GitHub Actions runs `uv run pytest` on pull requests into `main` and again when a merge or other push lands on `main`. The workflow file is `.github/workflows/pytest.yml`.
 
 ## Roadmap
 
@@ -90,5 +145,5 @@ Tests are not written yet.
 - Confirm the item-master names and paste the five SELECT statements.
 - Connect `search_similar_parts` to the vector index.
 - Point the `databricks-agent` script at `databricks_agent.main`.
-- Add tests for routing, the existence lookup, and the use-case allow-list.
+- Extend tests to the existence lookup and the SQL client.
 - Decide which fixed queries an assembly should run.
